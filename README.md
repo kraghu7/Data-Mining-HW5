@@ -1,1 +1,1 @@
-# Data-Mining-HW5
+# Champo Carpets - Harvard Case Study
