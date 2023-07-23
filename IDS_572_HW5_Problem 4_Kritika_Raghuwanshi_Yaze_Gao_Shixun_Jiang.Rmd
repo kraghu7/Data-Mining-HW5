@@ -1,0 +1,1763 @@
+---
+title: "IDS572-HW5"
+author: "Kritika Raghuwanshi;Shixun Jiang;Yaze Gao"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: lualatex
+header-includes: \usepackage{sectsty} \sectionfont{\centering}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+# Problem 4
+
+# Loading Data
+
+Before we get started with any of the parts in problem 4, we need to load the different pages of the Champo Carpets Excel sheet. We do that as follows:
+
+```{r champo}
+library("pacman")
+library("tidyverse")
+library("rpart")
+library("rpart.plot")
+library("readxl")
+
+RawDataOrderSample <- read_xlsx("C:/Champo Carpets.xlsx", sheet = 2)
+DataOrderOnly <- read_xlsx("C:/Champo Carpets.xlsx", sheet = 3)
+DataOnSampleOnly <- read_xlsx("C:/Champo Carpets.xlsx", sheet = 4)
+DataForRecommendation <- read_xlsx("C:/Champo Carpets.xlsx", sheet = 5)
+DataAssociationRules <- read_xlsx("C:/Champo Carpets.xlsx", sheet = 7)
+
+head(RawDataOrderSample)
+```
+
+\newpage
+
+\sectionfont{\centering}
+
+# Cleaning the Data Set "RawDataOrderSample"
+
+Now that we're done loading the data into R using the different sheets of the Excel file, we can proceed to the next step of cleaning the data. This is needed to ensure we're working on a data set devoid of any **"NA"** values, which has the potential of skewing our models we will be making further. First, we start with the **"RawDataOrderSample"** data set:
+
+```{r}
+ROS <- RawDataOrderSample #making a copy
+
+#converting values from character categorical to factor
+
+ROS$OrderType <- as.factor(ROS$OrderType)
+ROS$OrderCategory <- as.factor(ROS$OrderCategory)
+ROS$CustomerCode <- as.factor(ROS$CustomerCode)
+ROS$CountryName <- as.factor(ROS$CountryName)
+ROS$UnitName <- as.factor(ROS$UnitName)
+ROS$ITEM_NAME <- as.factor(ROS$ITEM_NAME)
+ROS$QualityName <- as.factor(ROS$QualityName)
+ROS$DesignName <- as.factor(ROS$DesignName)
+ROS$ColorName <- as.factor(ROS$ColorName)
+ROS$ShapeName <- as.factor(ROS$ShapeName)
+
+str(ROS)
+```
+
+We have one variable within the RawDataOrderSample data set which has POSIX (UTC) format date, but is of no use to us, as we cannot form a decision tree with it.
+
+```{r}
+ROS <- select(ROS, -c('Custorderdate'))
+```
+
+\newpage
+
+Next up, we check if there are any NA values in the RawDataOrderSample data set. Upon running the is.na command, we notice that the variable **CustomerOrderNo** is the only variable with NA values - 9 of them. In order to replace those NA values with the most occurring value in that column, we write a Mode function, and then finally replace the NA value with the mode value as follows:
+
+```{r}
+sum(is.na(ROS))#before removing NAs
+
+Modes <- function(x) {
+  ux <- unique(x)
+  tab <- tabulate(match(x, ux))
+  ux[tab == max(tab)]
+}
+
+mode_con <- Modes(ROS$CustomerOrderNo)
+mode_con #this is the most occurring value in the column
+
+ROS$CustomerOrderNo <- replace(ROS$CustomerOrderNo, is.na(ROS$CustomerOrderNo),
+                               mode_con)
+
+sum(is.na(ROS))#after removing NAs
+```
+
+\newpage
+
+\sectionfont{\centering}
+
+# Cleaning the Data Set "DataOnSampleOnly"
+
+When we check the is.na command against this data set, we see there are 273 NAs, the spread of which is as follows:
+
+```{r}
+DOS <- DataOnSampleOnly #making a copy
+sum(is.na(DOS))
+
+colSums(is.na(DOS))
+```
+
+Based on the results, we take those variables that don't have any NA values and convert them into factors, to make it easy for us to build our models later:
+
+```{r}
+DOS$CustomerCode <- as.factor(DOS$CustomerCode)
+DOS$CountryName <- as.factor(DOS$CountryName)
+#DOS$QtyRequired <- as.factor(DOS$QtyRequired)
+DOS$ITEM_NAME <- as.factor(DOS$ITEM_NAME)
+DOS$`Hand Tufted` <- as.factor(DOS$`Hand Tufted`)
+DOS$Durry <- as.factor(DOS$Durry)
+DOS$`Double Back` <- as.factor(DOS$`Double Back`)
+DOS$`Hand Woven` <- as.factor(DOS$`Hand Woven`)
+DOS$Knotted <- as.factor(DOS$Knotted)
+DOS$Jacquard <- as.factor(DOS$Jacquard)
+DOS$Handloom <- as.factor(DOS$Handloom)
+DOS$Other <- as.factor(DOS$Other)
+DOS$ShapeName <- as.factor(DOS$ShapeName)
+DOS$REC <- as.factor(DOS$REC)
+DOS$Round <- as.factor(DOS$Round)
+DOS$Square <- as.factor(DOS$Square)
+#DOS$AreaFt <- as.factor(DOS$AreaFt)
+```
+
+\newpage
+
+Variable **OrderConversion** can be considered as our **"target"** variable, so we will convert this into "YES" or "NO", depending on the values.
+
+```{r}
+library(knitr)
+DOS$target <- as.factor(ifelse(DOS$`Order Conversion` == 1,
+                        "YES", "NO"))
+kable(table(DOS$target))
+
+DOS <- DOS[,-c(25)]#removal of Order Conversion due to new "target" variable
+```
+
+Now that we're done with converting those variable to factors that do not have any NA values, we shift our focus to those that have NA values and replace those NAs with the mode
+
+**1. Removing NAs from the "USA" variable:**
+
+```{r}
+sum(is.na(DOS$USA))#before removing NAs
+
+mode_USA <- Modes(DOS$USA)
+DOS$USA <- replace(DOS$USA, is.na(DOS$USA), mode_USA)
+
+sum(is.na(DOS$USA))#after removing NAs
+```
+
+**2. Removing NAs from the "UK" variable:**
+
+```{r}
+sum(is.na(DOS$UK))#before removing NAs
+
+mode_UK <- Modes(DOS$UK)
+DOS$UK <- replace(DOS$UK, is.na(DOS$UK), mode_UK)
+
+sum(is.na(DOS$UK))#after removing NAs
+```
+
+\newpage
+
+**3. Removing NAs from the "Italy" variable:**
+
+```{r}
+sum(is.na(DOS$Italy))#before removing NAs
+
+mode_Italy <- Modes(DOS$Italy)
+DOS$Italy <- replace(DOS$Italy, is.na(DOS$Italy), mode_Italy)
+
+sum(is.na(DOS$Italy))#after removing NAs
+```
+
+**4. Removing NAs from the "Belgium" variable:**
+
+```{r}
+sum(is.na(DOS$Belgium))#before removing NAs
+
+mode_Belgium <- Modes(DOS$Belgium)
+DOS$Belgium <- replace(DOS$Belgium, is.na(DOS$Belgium), mode_Belgium)
+
+sum(is.na(DOS$Belgium))#after removing NAs
+```
+
+**5. Removing NAs from the "Romania" variable:**
+
+```{r}
+sum(is.na(DOS$Romania))#before removing NAs
+
+mode_Romania <- Modes(DOS$Romania)
+DOS$Romania <- replace(DOS$Romania, is.na(DOS$Romania), mode_Romania)
+
+sum(is.na(DOS$Romania))#after removing NAs
+```
+
+**6. Removing NAs from the "Australia" variable:**
+
+```{r}
+sum(is.na(DOS$Australia))#before removing NAs
+
+mode_Australia <- Modes(DOS$Australia)
+DOS$Australia <- replace(DOS$Australia, is.na(DOS$Australia), mode_Australia)
+
+sum(is.na(DOS$Australia))#after removing NAs
+```
+
+\newpage
+
+**7. Removing NAs from the "India" variable:**
+
+```{r}
+sum(is.na(DOS$India))#before removing NAs
+
+mode_India <- Modes(DOS$India)
+DOS$India <- replace(DOS$India, is.na(DOS$India), mode_India)
+
+sum(is.na(DOS$India))#after removing NAs
+```
+
+Finally, if we check our data set "DataOnSampleOnly", we should not see any NAs
+
+```{r}
+sum(is.na(DOS))
+```
+
+\newpage
+
+\sectionfont{\centering}
+
+# Part A 
+
+# Exploratory Data Analysis
+
+**Q.** With the help of data visualization, provide key insights using exploratory data analysis
+
+**A.** In order to perform data visualization, we chose two different data sets - the **Data On Sample Only** data set and the **Raw Data-Order and Sample** data set.
+
+# EDA on Data on Sample Only Data Set
+
+**1. CountryName v/s Target**
+
+```{r}
+library(ggplot2)
+library(scales)
+ggplot(DOS, aes(CountryName, target, fill = target)) + 
+    geom_bar(stat = "identity") + scale_x_discrete(labels = label_wrap(10)) + 
+    labs(title = "Country Name v/s Target", x = "Country Name",
+         y= "Order Conversion")
+```
+
+\newpage
+
+**Pie chart for country distribution**
+
+```{r}
+library(ggplot2)
+library(plotrix)
+pietable <- table(DOS$CountryName)
+percent <- round(pietable/sum(pietable)*100)
+label1 <- paste(names(pietable),percent)
+label2 <- paste(label1, "%", sep="")
+pie3D(pietable, labels = label2, explode = 0.1, 
+      main="Distribution of Countries", radius = 1.5)
+```
+
+**Analysis**
+
+From the first chart, we notice that **India** has the highest ratio of order conversion among all the countries, but they also have the highest numbers of orders that didn't convert or materialize. The next best country is **USA**, who also have a similar story, with more orders not getting converted compared to orders getting converted. The country that has more orders getting converted v/s not is **Belgium**.
+
+For this reason, we pull a pie chart of the distribution of countries. The pie chart shows us that the above result is due to **India** occupying **68%** of the distribution, while the rest of the countries don't have much spread across the data set. **USA** is at **25%**, which explains the theory of them being next best. Finally, out of the **2%** distribution Belgium has, Champo Carpets are successful in selling to them the most.
+
+\newpage
+
+**2. ITEM_NAME v/s Target**
+
+```{r}
+ggplot(DOS, aes(ITEM_NAME, target, fill = target)) + 
+    geom_bar(stat = "identity") + scale_x_discrete(labels = label_wrap(10)) + 
+    labs(title = "Item Name v/s Target", x = "Item Name",
+         y= "Order Conversion")
+```
+
+\newpage
+
+**Pie chart for item distribution**
+
+```{r}
+pietable <- table(DOS$ITEM_NAME)
+percent <- round(pietable/sum(pietable)*100)
+label1 <- paste(names(pietable),percent)
+label2 <- paste(label1, "%", sep="")
+pie3D(pietable, labels = label2, explode = 0.1, 
+      main="Distribution of Items", radius = 1.5)
+```
+
+**Analysis**
+
+From the first chart, we notice that **Hand Tufted** item has the highest ratio of order conversion among all the items, but it also has the highest numbers of orders that didn't convert or materialize. The next best item is **Durry**, that has a similar story, with more orders not getting converted compared to orders getting converted. The item that has more orders getting converted v/s not is **Power Loom Jacquard**.
+
+For this reason, we pull a pie chart of the distribution of items. The pie chart shows us that the above result is due to **Hand Tufted** occupying **42%** of the distribution, while the rest of the items don't have much spread across the data set. **Durry** is at **27%**, which explains the theory of them being next best. Finally, out of the **2%** distribution that Power Loom Jacquard has, Champo Carpets are successful in selling it the most.
+
+\newpage
+
+**3. CountryName v/s QtyRequired**
+
+```{r}
+ggplot(DOS, aes(CountryName, QtyRequired, fill = CountryName)) + 
+    geom_bar(stat = "identity") + scale_x_discrete(labels = label_wrap(10)) + 
+    labs(title = "Country Name v/s Quantity Required", x = "Country Name",
+         y= "Quantity Required")
+```
+
+**Analysis**
+
+From the above chart, we again notice that **India** requires the highest number of quantity among all the countries, but as we noticed from the above charts, not all those get converted into an order, so even though India needs more, they don't end up ordering more. Similarly, **USA** is the next best, followed by **Belgium** and **UK**.
+
+\newpage
+
+**4. ITEM_NAME v/s ShapeName**
+
+```{r}
+ggplot(DOS, aes(ITEM_NAME, ShapeName, fill = ShapeName)) + 
+    geom_bar(stat = "identity") + scale_x_discrete(labels = label_wrap(10)) + 
+    labs(title = "Item Name v/s Shape Name", x = "Item Name",
+         y= "Shape Name")
+```
+
+
+**Analysis**
+
+From the above chart, we notice that *Hand tufted** is the only item that comes in all shapes - **Rectangle**, **Round**, and **Square**. However, it's largely available in "Rectangular" shape v/s the other shapes. **Durry** and **Gun Tufted** come in two shapes - "Rectangular" and "Round". **Indo-Tibetan** is the only item that comes in only "Square" shape.
+
+
+\newpage
+
+**5. ShapeName v/s Target**
+
+```{r}
+ggplot(DOS, aes(ShapeName, target, fill = target)) + 
+    geom_bar(stat = "identity") + scale_x_discrete(labels = label_wrap(10)) + 
+    labs(title = "Shape Name v/s Target", x = "Shape Name",
+         y= "Order Conversion")
+```
+
+**Analysis**
+
+From the above chart, we can see that out of all the shapes, **Rectangular** shape is the only one with the most order conversions, while also being the one that has the most orders that don't materialize. This theory can be explained by the above graphs, where **Round** and **Square** shaped carpets were not as prevalent as the the rectangular. Hence, **more sales for rectangular.**
+
+\newpage
+
+**6. CustomerCode v/s QtyRequired**
+
+```{r}
+ggplot(DOS, aes(CustomerCode, QtyRequired, fill = CustomerCode)) + 
+    geom_bar(stat = "identity") + scale_x_discrete(labels = label_wrap(10)) + 
+    labs(title = "Customer Code v/s Quantity Required", x = "Customer Code",
+         y= "Quantity Required")
+```
+
+\newpage
+
+**Pie chart for Customer distribution by code**
+
+```{r}
+pietable <- table(DOS$CustomerCode)
+percent <- round(pietable/sum(pietable)*100)
+label1 <- paste(names(pietable),percent)
+label2 <- paste(label1, "%", sep="")
+pie3D(pietable, labels = label2, explode = 0.1, 
+      main="Distribution of Customers (by code)", radius = 1.5)
+```
+
+**Analysis**
+
+From the first chart, we notice that the customer with code **CC** orders the most quantity of carpets from Champo. The next best sales is for the customer with code **N-1**. To understand why CC has the most sales, we pull a pie chart of the distribution of customers by their code. The pie chart shows us that the previous result is due to customer with code **CC** occupying **68%** of the distribution, while the rest of the items don't have much spread across the data set. Even though the customer with code **N-1** does not occupy much space on the distribution chart, it still converts a lot of the orders, thereby giving a Champo a lot of sales for the small customer they are.
+
+
+\newpage
+
+\sectionfont{\centering}
+
+# EDA on Raw Data-Order and Sample Data Set
+
+**1. ShapeName v/s OrderType**
+
+```{r}
+ggplot(ROS, aes(ShapeName, OrderType, fill = OrderType)) + 
+    geom_bar(stat = "identity") + scale_x_discrete(labels = label_wrap(10)) + 
+    labs(title = "Shape Name v/s Order Type", x = "Shape Name",
+         y= "Order Type")
+```
+
+\newpage
+
+**Pie chart for distribution of Shape**
+
+```{r}
+pietable <- table(ROS$ShapeName)
+percent <- round(pietable/sum(pietable)*100)
+label1 <- paste(names(pietable),percent)
+label2 <- paste(label1, "%", sep="")
+pie3D(pietable, labels = label2, explode = 0.1, 
+      main="Distribution of Shape", radius = 1.5)
+```
+
+**Analysis**
+
+From the first chart, we notice that **Rectangular** shaped carpets are sold more in terms of **Area** v/s **per piece**, whereas **Round** shaped carpets are sold equally in terms of area and per piece. **Oval** and **Octagon** shaped carpets are not sold as much as the other shapes.
+
+We also pull a pie chart of the distribution of shapes. The pie chart shows us that the above result is due to **Rectangular** shaped carpets occupying **98%** of the distribution, while **Round** shaped carpets are at **2%**, which explains the theory of them being next best. Since **Octagon** and **Oval** shaped carpets occupy **0%** on the distribution chart, they are likely not sold at all due to their odd shape.
+
+\newpage
+
+**2. ITEM_NAME v/s OrderType**
+
+```{r}
+ggplot(ROS, aes(ITEM_NAME, OrderType, fill = OrderType)) + 
+    geom_bar(stat = "identity") + scale_x_discrete(labels = label_wrap(10)) + 
+    labs(title = "Item Name v/s Order Type", x = "Item Name",
+         y= "Order Type")
+```
+
+**Analysis**
+
+From the above answer, **Hand Tufted** is the item type that's sold the most in both **Area** and **Per Piece** order types. Second best is **Durry**, followed by **Handwoven**, **Knotted**, and **Double Back**. **Power Loom Jacquard** is the only item type that's sold only area wise and not per piece.
+
+\newpage
+
+**3. CountryName v/s OrderCategory**
+
+```{r}
+ggplot(ROS, aes(CountryName, OrderCategory, fill = OrderCategory)) + 
+    geom_bar(stat = "identity") + scale_x_discrete(labels = label_wrap(10)) + 
+    labs(title = "Country Name v/s Order Category", x = "Country Name",
+         y= "Order Category")
+```
+
+\newpage
+
+**Pie chart for distribution of Order Category**
+
+```{r}
+pietable <- table(ROS$OrderCategory)
+percent <- round(pietable/sum(pietable)*100)
+label1 <- paste(names(pietable),percent)
+label2 <- paste(label1, "%", sep="")
+pie3D(pietable, labels = label2, explode = 0.1, 
+      main="Distribution of Order Category", radius = 1.5)
+```
+
+**Analysis**
+
+From the first chart, we notice that **India** mainly requests **samples** from Champo v/s making an **order**. This is why in the above charts we saw India having the most requests that were not converting to sales, as they mainly request samples and then don't buy the product. **USA** on the other hand makes more order requests and less sample requests. **Australia**, **Brazil**, **Canada**, **China**, **Lebanon**, **Romania**, and **South Africa** make mostly order requests and little to none sales requests.
+
+We also pull a pie chart of the distribution of order types. The pie chart shows us that **Orders** occupy **69%** of the distribution, while **samples** only form **31%** of the distribution.
+
+\newpage
+
+**4. ITEM_NAME v/s QtyRequired & ITEM_NAME v/s Amount**
+
+```{r}
+ggplot(ROS, aes(ITEM_NAME, QtyRequired, fill = ITEM_NAME)) + 
+    geom_bar(stat = "identity") + scale_x_discrete(labels = label_wrap(10)) + 
+    labs(title = "Item Name v/s Quantity Required", x = "Item Name",
+         y= "Quantity Required")
+```
+
+```{r}
+ggplot(ROS, aes(ITEM_NAME, Amount, fill = ITEM_NAME)) + 
+    geom_bar(stat = "identity") + scale_x_discrete(labels = label_wrap(10)) + 
+    labs(title = "Item Name v/s Amount", x = "Item Name",
+         y= "Amount")
+```
+
+**Analysis**
+
+From the first chart, we notice that **Durry** item type is ordered in the highest quantity compared to other item types. Next best is **Hand Tufted**. The least quantity required per the graph is for **Gun Tufted** while **Indo-Tibetan** was not sold at all in terms of quantity.
+
+From the second chart, we can see that **Hand Tufted** is the most expensive item type followed by **Durry**, **Knotted**, and **Handwoven**. If we compare the findings with the above graphs, we find that since Hand Tufted carpets are the most expensive, they tend to sell in lower quantities compared to Durries, which are second most expensive carpet types.
+
+\newpage
+
+**5. CountryName v/s QtyRequired & CountryName v/s Amount**
+
+```{r}
+ggplot(ROS, aes(CountryName, QtyRequired, fill = CountryName)) + 
+    geom_bar(stat = "identity") + scale_x_discrete(labels = label_wrap(10)) + 
+    labs(title = "Country Name v/s Quantity Required", x = "Country Name",
+         y= "Quantity Required")
+```
+
+```{r}
+ggplot(ROS, aes(CountryName, Amount, fill = CountryName)) + 
+    geom_bar(stat = "identity") + scale_x_discrete(labels = label_wrap(10)) + 
+    labs(title = "Country Name v/s Amount", x = "Country Name",
+         y= "Amount")
+```
+
+**Analysis**
+
+From the first chart, we notice that **USA** requires the most quantity of carpets, followed by **UK**. This confirms are theory that **India** only orders samples but doesn't buy the actual product, as we saw in the above graphs.
+
+From the second chart also we can see that **USA** spends the most amount on carpets, which is evident due to them ordering the most quantity as well. They're followed in the second spot by **UK**.
+
+\newpage
+
+**6. ITEM_NAME v/s UnitName**
+
+```{r}
+ggplot(ROS, aes(ITEM_NAME, UnitName, fill = UnitName)) + 
+    geom_bar(stat = "identity") + scale_x_discrete(labels = label_wrap(10)) + 
+    labs(title = "Item Name v/s Unit Name", x = "Item Name",
+         y= "Unit Name")
+```
+
+\newpage
+
+**Pie chart for distribution of Units**
+
+```{r}
+pietable <- table(ROS$UnitName)
+percent <- round(pietable/sum(pietable)*100)
+label1 <- paste(names(pietable),percent)
+label2 <- paste(label1, "%", sep="")
+pie3D(pietable, labels = label2, explode = 0.1, 
+      main="Distribution of Units", radius = 1.5)
+```
+
+**Analysis**
+
+From the first chart, we notice that **Hand Tufted** carpets are sold a lot in terms of **feet**, **meters**, or **per piece**. They're followed by **Durry**, **Double Back**, **Handwoven**, and **Knotted**. However, Double Back, Handwoven, and Knotted are all sold in feet or meters only, not per piece. **Indo-Tibetan** is only sold in **meters**, while **Power Loom Jacquard** and **Table Tufted** carpets are sold per **foot**. **Handloom** is the only carpet type that is sold in terms of **Wt (weight)**.
+
+We also pull a pie chart of the distribution of Units. The pie chart shows us that **Feet(ft)** occupies **76%** of the distribution, whereas **Meter(Mtr)** occupies **23%**. The rest are at less than **1%**.
+
+\newpage
+
+\sectionfont{\centering}
+
+# Part B
+
+**Q.** What kind of analytics and machine learning algorithms (e.g. classification, regression, clustering, recommender systems and etc) can be used by Champo Carpets to solve their problems, and in general for value creation? Justify your choices. Hint: This is just a conceptual question. You do not need to run any of these models for this question. Constructing models is done in the next question.
+
+**A.** To solve Champo Carpets' problems and create value, we can use the following:
+
+* Predictive analytics can be used to forecast demand and optimize inventory levels
+* Machine learning algorithms such as Decision Trees and Random Forests can be used for classification and prediction
+  * Decision tree can be used to identify the important attributes that determine the conversion of samples sent to the customers.
+* Clustering algorithms like k-means can be used for customer segmentation
+* Analytics techniques such as association rule mining and time series analysis can also be used to identify patterns and forecast trends
+
+These techniques can help Champo Carpets make better decisions regarding inventory management, pricing, and marketing strategies.
+
+
+\newpage
+
+\sectionfont{\centering}
+
+# Part C
+
+**Q.** Develop ML models (e.g. logistic regression, decision trees, random forest, neural network, and boosting) to help identify features contributing to conversion (or non-conversion) of samples sent to customers. Hint: For each model, discuss how you select features and tune different parameters. How do you evaluate the performance of each model? How do you select the best model(s). Run all your models on both balanced and imbalanced data and check the difference. Please note that your binary target is the “order conversion” variable in the sample data. You can obtain this variable from the information provided in the raw data.
+
+# Decision Tree
+
+Partitioning data into train and test data:
+
+```{r}
+set.seed(123)
+index_dt <- sample(2,nrow(DOS), replace=TRUE, prob=c(0.7,0.3))
+train <- DOS[index_dt==1, ] 
+test <- DOS[index_dt==2, ]
+```
+
+To build a decision tree model we use the "rpart" function from "rpart" package:
+
+```{r}
+library(rpart)
+tree_model_champo <- rpart(target ~ ., train)
+```
+
+We can access the decision rules in the decision tree model using the print() functions:
+
+```{r}
+print(tree_model_champo)
+```
+
+\newpage
+
+To plot an rpart decision tree we can use the "rpart.plot()" function from "rpart.plot" package:
+
+```{r}
+library(rpart.plot)
+rpart.plot(tree_model_champo)
+rpart.rules(tree_model_champo)
+```
+
+According to our decision tree mode, the root node splits on **"AreaFt"** variable and if it's less than or greater than 40 feet. If yes, it further splits into **CustomerCode**, followed by **"ITEM_NAME"**.
+
+\newpage
+
+In order to see a more fancier version of rpart.plot, we also have the option of fancyRpartPlot() function, which is part of the rattle library. It can be run as follows:
+
+```{r}
+library(rattle)
+fancyRpartPlot(tree_model_champo, palettes=c("Reds", "Greens"), sub="")
+```
+
+To obtain the predicted classes or predicted probabilities we can use the "predict" function:
+
+```{r}
+tree_pred_prob_champo <- predict(tree_model_champo, train)
+tree_pred_prob_champo <- predict(tree_model_champo, train, type = "prob")
+tree_pred_class_champo <- predict(tree_model_champo, train, type = "class")
+```
+
+Error rate of the decision tree model on training data:
+
+```{r}
+mean(tree_pred_class_champo != train$target)
+```
+
+Error rate of the decision tree model on test data:
+
+```{r}
+tree_pred_test_champo <- predict(tree_model_champo, test, type = "class")
+base_error_champo <- mean(tree_pred_test_champo != test$target)
+base_error_champo
+```
+
+Changing the parameters of rpart. parms = list(split = "information") or parms = list(split = "gini"). We can also modify the pre-pruning options in the rpart.control:
+
+```{r}
+tree_model_champo2 <- rpart(target ~ ., train, 
+                  parms = list(split = "information"), 
+                  control = rpart.control(minbucket = 0, minsplit = 0, cp = 0))
+
+rpart.plot(tree_model_champo2)
+
+
+pred_test_champo <- predict(tree_model_champo2, test, type = "class")
+error_preprun_champo <- mean(pred_test_champo != test$target)
+mincp_i <- which.min(tree_model_champo2$cptable[, 'xerror'])
+```
+
+We can select the best cp in two different approach:
+
+```{r}
+optCP <- tree_model_champo2$cptable[mincp_i, "CP"]
+```
+
+```{r}
+#The optimal xerror is the min_xError + xstd
+optError <- tree_model_champo2$cptable[mincp_i, "xerror"] + 
+  tree_model_champo2$cptable[mincp_i, "xstd"]
+
+#the row(index) of the xerror value which is closest to optError
+optCP_i <- which.min(abs(tree_model_champo2$cptable[,"xerror"] - optError))
+
+#finally, get the best CP value corresponding to optCP_i
+optCP <- tree_model_champo2$cptable[optCP_i, "CP"]
+optCP
+```
+
+Now we can prune the tree based on this best CP value:
+
+```{r}
+model_pruned_champo <- prune(tree_model_champo2, cp = optCP)
+```
+
+## Computing the accuracy of the pruned tree:
+
+```{r}
+library(knitr)
+test$pred <- predict(model_pruned_champo, test, type = "class")
+error_postprun_champo <- mean(test$pred != test$target)
+df <- data.frame(base_error_champo, error_preprun_champo, error_postprun_champo)
+
+base_error_champo_pct <- 
+paste(round(base_error_champo*100, 3), "%", sep = "")
+
+error_preprun_champo_pct <- 
+paste(round(error_preprun_champo*100, 3), "%", sep = "")
+
+error_postprun_champo_pct <- 
+paste(round(error_postprun_champo*100, 3), "%", sep = "")
+
+df_pct <- 
+data.frame(base_error_champo_pct, 
+error_preprun_champo_pct, error_postprun_champo_pct)
+
+kable(df)
+kable(df_pct)
+```
+
+The summary is that our model's base error rate is **9.22%** on the training data set. However, before pruning, the error rate on the test data set is **7.07%**. Lastly, after we prune our data set, the model's error rate becomes **7.13%**, which increased a little compared to preprune.
+
+\newpage
+
+\sectionfont{\centering}
+
+# Random Forest
+
+The main input arguments of the randomForest() function are: Formula that determines which variable is the target and which variables are inputs; data that indicates the training data; ntree that denotes the number of trees considered in the random forest. This should not be set to a too small number; and mtry that indicates the number of variables randomly sampled as candidates at each split. If you need to obtain
+the proximity matrix or important variables suggested by this model you can use “proximity = TRUE” and “importance = TRUE”
+
+```{r}
+library(randomForest)
+
+rf_champo <- randomForest(target ~ DOS$CustomerCode + DOS$CountryName + 
+DOS$USA + DOS$UK + DOS$Italy + DOS$Belgium + DOS$Romania + DOS$Australia + 
+DOS$India + DOS$QtyRequired + DOS$ITEM_NAME + DOS$`Hand Tufted` + DOS$Durry + 
+DOS$`Double Back` + DOS$`Hand Woven` + DOS$Knotted + DOS$Jacquard + 
+DOS$Handloom + DOS$Other + DOS$ShapeName + DOS$REC + DOS$Round + DOS$Square + 
+DOS$AreaFt, data = DOS, mtry = sqrt(ncol(DOS)-1), 
+ntree = 300, proximity = T, importance = T)
+```
+
+We can print the model, attributes, and also plot the error rates with various number of trees:
+
+```{r}
+print(rf_champo)
+names(rf_champo)
+```
+
+The OOB error rate for our random forest model is **0.0739** or **7.39%**
+
+\newpage
+
+## Attributes
+
+To view all the attributes we can call upon using our model, we utilize the attributes() function as follows:
+
+```{r}
+attributes(rf_champo)
+```
+
+\newpage
+
+## Plot
+
+We plot the error rates with various number of trees using the plot() function. In this result, we'll see a red curve, which is the error rate for the positive class that is **"YES"** in our case, green curve is for the negative class that is **"NO"**, and the black curve indicates the error rate on OOB.
+
+```{r}
+plot(rf_champo)
+```
+
+\newpage
+
+## MeanDecreaseAccuracy & MeanDecreaseGini
+
+Get the importance of variables by the function "importance()". Include type = 1 in the importance function is to get the important variables based on MeanDecreaseAccuracy. Type=2 is for MeanDecreaseGini. Just selecting a subset of results, where the value is greater than 10, so we don't get many variables back.
+
+```{r}
+imp1 <- importance(rf_champo, type = 1)
+imp2 <- importance(rf_champo, type = 2)
+
+imp1
+imp2
+```
+
+\newpage
+
+To see just a subset of the important variables, we can set a threshold on MeanDecreaseAccuracy and MeanDecreaseGini > 10
+
+```{r}
+subset(imp1, imp1[] >  10)
+subset(imp2, imp2[] >  10)
+```
+
+\newpage
+
+## Importance Plot
+
+```{r}
+varImpPlot(rf_champo)
+```
+**Summary**
+
+The most important variable according to the MeanDecreaseAccuracy graph is **"QtyRequired"**, followed by **"CustomerCode"** and **"ITEM_NAME"** at third position. According to MeanDecreaseGini model, the most important variable is **"AreaFt"**, followed by **"CustomerCode"** and **"ITEM_NAME"**, just like the first model. These make sense, as quantity required, area in feet, and item names are crucial variables for buying Champo Carpets, whereas customer code is also important to ensure we're keeping the customers in mind.
+
+\newpage
+
+## Predicted Classes & Probablities
+
+We can also obtain the predicted classes and predicted probabilities using the following codes:
+
+```{r}
+head(rf_champo$predicted)
+head(rf_champo$votes)
+```
+
+\newpage
+
+## Confusion Matrix
+
+To obtain a confusion matrix, we can also use the confusionMatrix() function from the “caret” package. Similar to the table() function, confusionMatrix() also receives the predicted and actual labels as inputs.
+
+```{r}
+library(caret)
+confusionMatrix(rf_champo$predicted, DOS$target, positive = "YES")
+```
+
+\newpage
+
+## Evaluation Charts
+
+To draw the evaluation charts we use “ROCR” package. There are two function in this package that we require to draw all different charts discussed in class: prediction and performance. The prediction() function receives two inputs:
+
+1. The predicted probability of the positive class and 
+2. The true labels 
+
+The output of the prediction function will be given to the performance() function to draw the charts
+
+```{r}
+library(ROCR) 
+score <- rf_champo$votes[, 2] 
+pred <- prediction(score, DOS$target)
+
+pred
+```
+
+\newpage
+
+### Gain chart
+
+The gain chart for our model is:
+
+```{r}
+perf <- performance(pred, "tpr", "rpp")
+
+perf
+
+plot(perf)
+```
+
+\newpage
+
+## ROC Curve
+
+The ROC curve for our model is:
+
+```{r}
+perf1 <- performance(pred, "tpr", "fpr")
+
+perf1
+
+plot(perf1)
+```
+
+## Area under the curve
+
+The area under the curve of our ROC curve is:
+
+```{r}
+auc <- unlist(slot(performance(pred, "auc"), "y.values"))
+auc
+```
+
+\newpage
+
+## Determining the best cut-off point
+
+The performance() function for ROC curve returns tpr, fpr and alpha-values (cut-off points). We can use the following code to write a function that received these and return the best cut-off point as the point closest to the corner [0, 1]. The input argument to this function is perf (the output of the performance() function). 
+
+The mapply function applies the function FUN to all **perf@x.values**, **perf@y.values**, and **perf@alpha.values**. In the function FUN(), we first compute the distance of all the points on the ROC curve from the corner point [0,1]. These distance values are stored in the vector “d”. We then find the index of the point that is the closest point to the corner. This index is stored in the variable named “ind”. The output of this function is then the tpr, fpr and the probability threshold corresponding to this index.
+
+```{r}
+cut.ind <- mapply(FUN = function(x,y,p) {
+  d=(x-0)^2+(y-1)^2 
+  ind<- which(d==min(d))
+  c(recall = y[[ind]], specificity = 1-x[[ind]],cutoff = p[[ind]])
+  }, perf@x.values, perf@y.values, perf@alpha.values)
+
+cut.ind
+```
+
+Per the values above, we can see that the recall value is **76.9%**, whereas the cutoff is at **0.19811**.
+
+\newpage
+
+\sectionfont{\centering}
+
+# Naive Bayes Model
+
+In particular, Naive Bayes is often used with nominal (categorical) variables. If numeric variables are to be used, they
+have to be:
+
+* represented as probabilities based on the appropriate probability distribution (typically Normal dist.) or,
+
+* discretized, that is, have their range of values split into several segments, and thus be turned into
+discrete set of values.
+
+
+We check if our numeric variables are normally distributed or not. For this, we use the Shapiro test. Our numeric variables are: **"USA", "UK", "Italy", "Belgium", "Romania", "Australia", "India", "QtyRequired", and "AreaFt".
+
+```{r}
+#creating a variable to hold 5000 values, as Shapiro test fails on large data
+
+print(var_usa <- shapiro.test(DOS$USA[0:5000]))
+print(var_uk <- shapiro.test(DOS$UK[0:5000]))
+print(var_italy <- shapiro.test(DOS$Italy[0:5000]))
+print(var_belgium <- shapiro.test(DOS$Belgium[0:5000]))
+print(var_romania <- shapiro.test(DOS$Romania[0:5000]))
+print(var_australia <- shapiro.test(DOS$Australia[0:5000]))
+print(var_india <- shapiro.test(DOS$India[0:5000]))
+print(var_qty <- shapiro.test(DOS$QtyRequired[0:5000]))
+print(var_area <- shapiro.test(DOS$AreaFt[0:5000]))
+```
+
+\newpage
+
+Since the shapiro test reveals that all are numeric variables are not normally distributed and they fail the hypothesis, we remove them from our data set. For this, we create a copy of our DOS dataset called DOS_nb:
+
+```{r}
+DOS_nb <- DOS
+DOS_nb <- within(DOS_nb, rm('USA', 'UK','Italy','Belgium', 'Romania',
+                            'Australia', "India", "QtyRequired", "AreaFt"))
+```
+
+Now that we have prepared the data, we can proceed to create sets for training and testing:
+
+```{r}
+index_nb <- sample(2, nrow(DOS_nb), replace = T, prob = c(0.8, 0.2))
+train_nb <- DOS_nb[index_nb == 1, ]
+test_nb <- DOS_nb[index_nb == 2, ]
+```
+
+To build a NB model, we will use the naiveBayes() function from the e1071 package. First, we’ll build a model using all the variables:
+
+```{r}
+library(e1071)
+nb1 <- naiveBayes(target ~ ., data = train_nb)
+print(nb1)
+```
+
+We then evaluate our model on the Test set:
+
+```{r}
+nb1.pred <- predict(nb1, newdata = test_nb, type = 'class')
+head(nb1.pred)
+```
+
+We then create the confusion matrix:
+
+```{r}
+nb1.cm <- table(true = test_nb$target, predicted = nb1.pred)
+nb1.cm
+```
+
+## Summary
+
+The diagonal cells of the table indicate the number of correct predictions, while the off-diagonal cells indicate the number of incorrect predictions. In the table, **885** instances with a true category of order conversion "not happening" were correctly predicted as not happening, and **82** instances with a true category of order conversion "happening" were correctly predicted as happening. However, **42** instances where the true category was order conversion "not happening" were incorrectly predicted as happening, and **148** instances where the true category was "happening" were incorrectly predicted as not happening.
+
+\newpage
+
+\sectionfont{\centering}
+
+# Logistic Regression
+
+The original data is first divided into a test set and a training set based on a ratio of 80:20
+
+```{r}
+DOS_logit <- DOS#creating a copy
+
+set.seed(256)
+index_logit <- sample(2, nrow(DOS_logit), replace = T, prob = c(0.8, 0.2))
+train_logit <- DOS_logit[index_logit == 1, ]
+test_logit <- DOS_logit[index_logit == 2, ]
+```
+
+Use the glm() function to create a logistic regression model. The predicted variable is 'target'. 'family = "binomial"' specifies the type of probability distribution used in the logistic regression model, in this case binomial, which is suitable for binary classification problems. Here, we're excluding **CustomerCode** and **CountryName**, as they both introduce new levels post running the glm function, which skews the data model:
+
+```{r}
+logitModel <- glm(target ~ ., data = train_logit[, !colnames(train_logit) %in%
+                    c("CustomerCode", "CountryName")], family = "binomial")
+
+summary(logitModel)
+```
+
+\newpage
+
+Post that, we calculate the residual deviance of the logistic regression model:
+```{r}
+rd <- summary(logitModel)$deviance
+1-pchisq(rd, 10)
+```
+
+After that, we move onto predicting our model:
+
+```{r}
+Pred <- predict(logitModel, newdata = test_logit, type = "response")
+Pred
+```
+
+\newpage
+
+Lastly, we predict using the predicate that above calculated value of **Pred** is greater than or equal to 0.5
+
+```{r}
+Class <- ifelse(Pred >= 0.5, "YES", "NO")
+Class
+```
+
+## Summary
+
+The Logistic Regression model suggests that the important attributes are: 
+* **ITEM_NAME** - **Gun Tufted**, **Knotted**, **Table Tufted**, and **Power Loom Jacquard**
+* **Shape Name (Round)**, and
+* **AreaFt**
+
+\newpage
+
+\sectionfont{\centering}
+
+# Neural Network
+
+It is important to normalize data before training a neural network. Otherwise, the neural network may have difficulty converging before the maximum number of iterations. We will use the following code to accomplish this task. In the below code, the myscale() function uses the min-max transformation to normalize the variable x. Using mutate_if() from the dplyr package, we can easily apply this function to all numerical variables and normalize them:
+
+```{r}
+library(dplyr)
+
+DOS_NN <- DOS#creating a copy
+
+myscale <- function(x) {
+  (x - min(x)) / (max(x) - min(x))
+}
+
+DOS_NN <- DOS_NN %>% mutate_if(is.numeric, myscale)
+```
+
+Now, let’s split our normalized data into a training set and a test set. We will run our neural network on the
+training set and then check its performance on the test set:
+
+```{r}
+set.seed(1234)
+index_NN <- sample(2, nrow(DOS_NN), replace = T, prob = c(0.7, 0.3))
+train_NN <- DOS_NN[index_NN == 1, ]
+test_NN <- DOS_NN[index_NN == 2, ]
+```
+
+We use the “nnet()” function from the “nnet” package to build a neural network model. Here we notice the following arguments:
+
+* **“size”**: this argument specifies how many nodes to have in the hidden layer, skip indicates that the input
+* **layer** has a direct connection to the output layer
+* **“linout”** specifies the simple identity activation function. This is mainly used if the target variable is numerical. When the linout is False (the target variable is nominal), the entropy function is used as the activation function in the output layer
+* **“decay”** is the regularization parameter to avoid over-fitting
+* **“maxit”** is the maximum number of iterations for the algorithm that finds the network weights
+
+The below function call will build a neural network with a single hidden layer, formed by ten hidden units. Moreover, the weights will be learned with a weight updating rate of 0.01 (the parameter decay). The parameter linout = FALSE indicates that the target variable is not continuous.
+
+
+```{r}
+library(nnet)
+nnModel <- nnet(target ~ ., data = train, linout = FALSE, 
+                size = 3, decay = 0.01, maxit = 1000)
+```
+
+\newpage
+
+The nnet() function uses the back-propagation algorithm as the basis of an iterative process of updating the neural network weights, p, to a maximum of “maxit” cycles. This iterative process may take a long time to compute for large data sets.
+
+The output of the above function is a neural network with **78** input units (predictor variables) connected to **3** hidden units, which will then be linked to a **single** output unit. We can see the final weights (**241**) of these connections by looking at the summary and the neural network plot.
+
+```{r}
+summary(nnModel)
+```
+
+\newpage
+
+We can use wts to get the best weights found and fitted.values to get the fitted values on training data:
+
+```{r}
+options(scipen = 5)
+nnModel$wts
+nnModel$fitted.values
+```
+
+\newpage
+
+To draw a nnet model, we can use “plotnet()” function from “NeuralNetTools” package:
+
+```{r}
+library(NeuralNetTools)
+plotnet(nnModel, pos_col='darkgreen',neg_col='darkblue',
+circle_cex=5,
+circle_col='brown')
+```
+
+The neural network model can be used to make predictions for our test instances:
+
+```{r}
+nn.preds = predict(nnModel, test)
+```
+
+We still have results between 0 and 1 that are more like probabilities of belonging to each class. To get the predicted classes, we can use change the type argument:
+
+```{r}
+nn.preds = as.factor(predict(nnModel, test, type = "class"))
+```
+
+Now lets create a simple confusion matrix:
+
+```{r}
+CM <- table(nn.preds, test$target, dnn = c("predicted","actual"))
+print(CM)
+```
+
+We can check the performance of the neural network model:
+
+```{r}
+library(plyr)
+error_metric = function(CM)
+{
+  TN = CM[1,1]
+  TP = CM[2,2]
+  FN = CM[1,2]
+  FP = CM[2,1]
+  recall = (TP)/(TP+FN)
+  precision =(TP)/(TP+FP)
+  falsePositiveRate = (FP)/(FP+TN)
+  falseNegativeRate = (FN)/(FN+TP)
+  error =(FP+FN)/(TP+TN+FP+FN)
+  modelPerf <- list("precision" = precision,    
+                    "recall" = recall,
+                    "falsepositiverate" = falsePositiveRate,
+                    "falsenegativerate" = falseNegativeRate, 
+                    "error" = error)
+  return(modelPerf)
+}
+
+outPutlist <- error_metric(CM)
+
+
+df <- ldply(outPutlist, data.frame)
+setNames(df, c("", "Values"))
+```
+
+## Summary
+
+The final result shows us that our model has a precision of **89.64%** and an error rate of **7.42%**. Also, according to our confusion matrix, **1346** instances with a true category of order conversion "not happening" were correctly predicted as not happening, and **251** instances with a true category of order conversion "happening" were correctly predicted as happening. However, **99** instances where the true category was order conversion "not happening" were incorrectly predicted as happening, and **29** instances where the true category was "happening" were incorrectly predicted as not happening.
+
+\newpage
+
+\sectionfont{\centering}
+
+# Cross Validation
+
+In order to perform cross validation on our data set, we do not consider two variables in our data set called **CustomerCode**, and **CountryName**, as these variables are causing level mismatches when running through Logistic Regression, which results in skewing of our analysis.
+
+```{r}
+DOS_Cross <- DOS[sample(nrow(DOS)), ]#creating a copy
+
+k <- 10
+nmethod <- 1
+folds <- cut(seq(1,nrow(DOS_Cross)),breaks=k,labels=FALSE) 
+model.err <- matrix(-1,k,nmethod,dimnames=list(paste0("Fold", 1:k),
+                                               c("LogitReg")))
+```
+
+In order to get the mean error rate, we put our models through a loop as follows:
+
+```{r}
+for(i in 1:k)
+{ 
+    testindexes <- which(folds==i, arr.ind=TRUE) 
+    test_Cross <- DOS_Cross[testindexes, ] 
+    train_Cross <- DOS_Cross[-testindexes, ] 
+    
+    
+    LogitModel<- glm(target~., data = train_Cross[, !colnames(train_Cross) %in%
+                 c("CustomerCode", "CountryName")], family = "binomial")
+    
+    predicted <- predict(LogitModel, newdata = test_Cross, type = "response")
+    pred_class <- as.factor(ifelse(predicted >= 0.5,"YES", "NO"))
+    model.err[i] <- mean(test_Cross$target != pred_class)
+}
+
+mean(model.err)
+model.err
+```
+
+Here we can say safely that according to cross-validation, the mean error rate for all our models is **0.1396907**, which translates to **13.96%**.
+
+\newpage
+
+\sectionfont{\centering}
+
+# Evaluation of Best Model
+
+First we simply created four models to check their accuracy
+```{r}
+set.seed(123) 
+trainIndex_best <- createDataPartition(DOS$target, p = 0.8, list = FALSE)
+training_best <- DOS[trainIndex_best, ]
+testing_best <- DOS[-trainIndex_best, ]
+
+#DecisionTree
+fit.tree <- rpart(target ~ ., data=training_best, method="class")
+pred.tree <- predict(fit.tree, testing_best, type="class")
+
+#NaiveBayes
+fit.nb <- naiveBayes(target ~ ., data = training_best)
+pred.nb <- predict(fit.nb, newdata = testing_best, type = 'class')
+
+#RandomForest
+fit.rf <- randomForest(target ~. -`Hand Tufted` -`Double Back` -`Hand Woven`,
+                       data=training_best, ntree=100)
+
+pred.rf <- predict(fit.rf, testing_best)
+
+#Logistic Regression
+fit.logit <- glm(target ~ ., data = training_best, family = binomial)
+pred.logit<- predict(fit.logit, newdata = testing_best, type = "response")
+
+#NeuralNetwork
+fit.nn <- nnet(target ~ ., data=training_best, size=5)
+pred.nn <- predict(fit.nn, testing_best, type="class")
+```
+
+\newpage
+
+\sectionfont{\centering}
+
+# Summary
+
+Calculating the accuracy values for each model and their percentages:
+
+```{r}
+acc.tree <- sum(pred.tree == testing_best$target)/nrow(testing_best)
+acc.nb <- sum(pred.nb == testing_best$target)/nrow(testing_best)
+acc.rf <- sum(pred.rf == testing_best$target)/nrow(testing_best)
+acc.logit <- sum(pred.logit == testing_best$target)/nrow(testing_best)
+acc.nn <- sum(pred.nn == testing_best$target)/nrow(testing_best)
+
+acc.tree_pct <- 
+paste(round(acc.tree*100, 2), "%", sep = "")
+
+acc.nb_pct <- 
+paste(round(acc.nb*100, 2), "%", sep = "")
+
+acc.rf_pct <- 
+paste(round(acc.rf*100, 2), "%", sep = "")
+
+acc.logit_pct <- 
+paste(round(acc.logit*100, 2), "%", sep = "")
+
+acc.nn_pct <- 
+paste(round(acc.nn*100, 2), "%", sep = "")
+```
+
+Displaying the above calculated values using "kable" function in R:
+```{r}
+
+Accu_Table <- data.frame(ModelName = c("Decision Tree Accuracy", 
+"Naive Bayes Accuracy", "Random Forest Accuracy", 
+"Logistic Regression Accuracy", "Neural Network Accuracy"),
+ModelValue = c(acc.tree_pct, acc.nb_pct, acc.rf_pct, acc.logit_pct, acc.nn_pct))
+
+kable(Accu_Table)
+```
+
+* The accuracy of the **Neural Network model is 91.14%**, which means that the model correctly predicted 91.14% of the target's results on the test set, making it the best model for us. 
+
+* Second and third best models are **Decision Tree** and **Random Forest**. 
+
+* The worst performing models for our data set are **Naive Bayes** and **Logistic Regression**.
+
+\newpage
+
+\sectionfont{\centering}
+
+# Part D
+
+**Q.** Discuss the data strategy for building customer segmentation using clustering. What are the benefits Champo Carpets can expect from clustering? Hint: Data strategy should clearly identify the data that should be used and how it should be used, including any feature engineering that may be performed before the model building.
+
+**A.** The data strategy for establishing customer segmentation using clustering is to categorize consumers according to their behavior using a number of clustering algorithms. As a result, Champo Carpet will be able to recognize different customer segments and focus its marketing efforts on them. The benefits of this method include the ability to monitor the success of marketing initiatives and more accurately target clients with special offers. This way, Champo Carpets would also be able to increase their marketing efforts and ROI, not to mention greater lifetime value and client retention. For this purpose, they can divide their customer base into groups utilizing clustering techniques like K-means and hierarchical clustering.
+
+Based on the description, the main issue for Champo carpet is the low sample conversion rate. In 2019, Champo carpet’s sample conversion rate was **20%**, which is 15 percentage points below the conversion rate of the industry as a whole. For carpet the carpet manufacturing cost can be divided into three parts:
+
+* raw material and its dyeing cost **(30%)** 
+* weaving cost **(60%)**
+* finishing cost **(10%)**
+
+Therefore, reducing the weaving cost can quickly reduce the manufacturing cost of carpet. The clustering idea for Champo carpet can focus on the clustering of weaving methods. By understanding customer needs and preferences, Champo Carpets enhances the customer experience, and by providing a personalized experience for customers, Champo Carpets can increase overall customer satisfaction and build brand loyalty. Finally customer segmentation helps Champo Carpets to identify high value customers and create personalized up-sell and cross-sell opportunities, thereby increasing revenue.
+
+Additionally, Champo Carpet can create tailored marketing efforts with a higher chance of success by comprehending the behavior of various client segments. In order to better enhance their marketing efforts, Champo Carpet may also track the outcomes of these campaigns.
+
+\newpage
+
+\sectionfont{\centering}
+
+# Part E
+
+**Q.** Discuss clustering algorithms that can be used for segmenting Champo Carpets’s customers. Please justify your choices. Discuss what distance and similarity measures are suitable in this case (Again, this is a conceptual question where you need to discuss which clustering method seems proper for this application and why). First, k-means and hierarchical clustering algorithms are both common clustering algorithms, but the difference between them is the clustering method. **k-means algorithm** requires a pre-specified number of clusters and assigns the data points to the nearest cluster at the center of each cluster. Hierarchical clustering, on the other hand, gradually merges data points into larger and larger clusters based on the similarity or distance between them until all data points are merged into one cluster or a preset stopping condition is reached.
+
+**A.** Here are our thoughts to the question:
+
+1. For Champo carpet company’s data, we think hierarchical clustering is more appropriate. First by looking at the table, each customer group may not have placed orders for certain weaving methods, so there are many cells in this data set with 0. The data is sparse because there are many 0 values in the data set. In k-means clustering, it is assumed that each data point belongs to a certain cluster, which may lead to inaccurate clustering results. On the other hand, **hierarchical clustering** can adapt to sparse data and gradually merge similar points into a cluster, thus producing more accurate clustering results.
+
+2. Second, the number of clusters for Champo carpet is unknown. k-means requires specifying the number of clusters, but in this case, we do not know how many customer groups are appropriate. Hierarchical clustering can help us to determine the most appropriate number of clusters by generating different numbers of clusters with different linking methods and clustering distances.
+
+3. When dealing with data with many zero values, the use of traditional distance measures such as **Euclidean distance** or **Manhattan distance** may lead to biased clustering results. Therefore, some similarity measures specifically for dealing with data with a large number of zero values have been proposed.
+
+4. One of the commonly used methods is the **cosine similarity measure**, which measures the cosine of the angle between vectors rather than the length of the vectors. In the cosine similarity measure, the similarity is 1 if the angle between two vectors is 0 degrees, and 0 if the angle is 90 degrees. cosine similarity measure is usually used to deal with textual data, but it is also applicable to sparse data, such as the carpet order data in this example. Since the data has many cells with zero data, the cosine similarity measure seems to be a reasonable choice because it can ignore the effect of zero values. In addition, if a hierarchical clustering method is used, one can choose to use the single-join clustering method, which will pick the distance between the two closest samples in two clusters as the distance between them, which is also applicable to the case of sparse data.
+
+
+\newpage
+
+\sectionfont{\centering}
+
+# Part F
+
+**Q.** Develop customer segmentation using k-means clustering. Discuss the optimal number of clusters., significant variables, and cluster characteristics. Notice that when the scree plot does not provide a clear choice of k for the number of clusters, you can look at other measures that we have discussed, such as the Silhouette measure. In many clustering applications, you need to consider more than one measure to obtain the number of desirable clusters.
+
+**A.** For this question, we will need the DataForClustering data. First, we copy the data set into something more easy to work with:
+
+```{r}
+cd <- read_excel("C:/Champo Carpets.xlsx",sheet = "Data for Clustering", 
+                 col_names = TRUE)
+
+#We need to set the first column to the row name
+
+cd1 <- cd[, -1]
+row.names(cd1) <- cd$`Row Labels`
+
+good <- cd1
+
+#We also check their structure and their data types
+
+str(good)
+```
+
+For k-means there cannot be any missing values or NA, so we need to check NA and missing value first. Upon checking, we can confirm that this data set does not have any missing / NA values:
+
+```{r}
+sum(is.na(good))
+
+anyNA(good)
+
+any(is.null(good))
+```
+
+Now we need to normalize the data, which we do using the min-max transformation:
+
+```{r}
+library(dplyr)
+
+myscale <- function(x) {
+  (x - min(x)) / (max(x) - min(x))
+}
+
+c_data <- good %>% mutate_if(is.numeric, myscale)
+```
+
+Next up, we can begin using k-means to create our model. To create graphs of the clusters generated with the kmeans() function, will use the “factoextra” package. We run the kmeans() function on Champo data for clustering dataset to group instances into two clusters (centers = 2)
+
+```{r}
+library(ggplot2)
+library(factoextra)
+
+km1 <- kmeans(c_data, centers = 2, nstart = 200)
+str(km1)
+
+km1
+```
+
+Based on the above data, we can deduce the following:
+
+1. **K-means clustering with 2 clusters of sizes 3, 42** indicates that the data set is divided into 2 categories using K-means algorithm, one category has 3 data points and the other category has 42 data points. 
+
+2. **Cluster means** shows the coordinates of the centroids of each category, for each column of data there is a coordinate, there are 13 columns of data.
+
+3. **Clustering vector** shows which category each data point belongs to; there are 45 data points in total.
+
+4. **Within cluster sum of squares by cluster** indicates the sum of squared errors of data points within each category. 
+
+5. **Available components** lists the available information contained in this result.
+
+\newpage
+
+```{r}
+km1$cluster
+km1$centers
+km1$withinss
+km1$betweenss
+km1$size
+```
+
+\newpage
+
+Next we use the fviz_cluster function to illusterate the clusters. Since our data set has more than two variables, the fviz_cluster function performs principal component analysis (PCA) first and plot the data points according to the first two principal components that explain the majority of the variance:
+
+
+```{r}
+fviz_cluster(km1, data = c_data)
+```
+
+\newpage
+
+Now, we will execute the k-means algorithm for **3, 4, and 5 clusters** and see how clusters change:
+
+```{r}
+km2 <- kmeans(c_data, centers = 3, nstart = 200)
+km3 <- kmeans(c_data, centers = 4, nstart = 200)
+km4 <- kmeans(c_data, centers = 5, nstart = 200)
+```
+
+Plots to compare:
+
+```{r}
+library(gridExtra)
+
+p1 <- fviz_cluster(km1, geom = "point", data = c_data) + ggtitle("k = 2")
+p2 <- fviz_cluster(km2, geom = "point", data = c_data) + ggtitle("k = 3")
+p3 <- fviz_cluster(km3, geom = "point", data = c_data) + ggtitle("k = 4")
+p4 <- fviz_cluster(km4, geom = "point", data = c_data) + ggtitle("k = 5")
+
+grid.arrange(p1, p2, p3, p4, nrow = 2)
+```
+
+\newpage
+
+Post that, we will execute the k-means algorithm for **6, 7, and 8 clusters** and see how clusters change:
+
+```{r}
+km5 <- kmeans(c_data, centers = 6, nstart = 200)
+km6 <- kmeans(c_data, centers = 7, nstart = 200)
+km7 <- kmeans(c_data, centers = 8, nstart = 200)
+```
+
+Plots to compare:
+
+```{r}
+library(gridExtra)
+p5 <- fviz_cluster(km5, geom = "point", data = c_data) + ggtitle("k = 5")
+p6 <- fviz_cluster(km6, geom = "point", data = c_data) + ggtitle("k = 6")
+p7 <- fviz_cluster(km7, geom = "point", data = c_data) + ggtitle("k = 7")
+
+grid.arrange(p5, p6, p7, nrow = 2)
+```
+
+\newpage
+
+Solution 1: To determine the numbers of clusters we can use the elbow method. The following code draws the scree plot:
+
+```{r}
+library(tidyverse)
+
+set.seed(123)
+
+# function to compute total within-cluster sum of square
+wss <- function(k) {
+  kmeans(c_data, centers = k, nstart = 100)$tot.withinss
+}
+
+# Compute and plot wss for k = 1 to k = 15
+k.values <- 1:15
+
+# extract wss for 2-15 clusters
+
+wss_values <- map_dbl(k.values, wss)
+plot(k.values, wss_values,
+type="b", pch = 19, frame = FALSE,
+xlab="Number of clusters",
+ylab="Total within-clusters sum of squares")
+```
+
+To get the scree plot, we can also use the “fviz_nbclust” function:
+
+```{r}
+set.seed(123)
+fviz_nbclust(c_data, kmeans, method = "wss")
+```
+
+\newpage
+
+Solution 2: Another measure we learned that can be used to check the performance of clusters is the Silhouette measure. We can use the “silhouette” function from the “cluster” package to compute the average silhouette:
+
+```{r}
+# function to compute average silhouette for k clusters
+library(cluster)
+
+avgsil <- function(k) {
+  kmModel <- kmeans(c_data, centers = k, nstart = 100)
+  ss <- silhouette(kmModel$cluster, dist(c_data))
+  mean(ss[, 3])
+}
+
+# Compute and plot wss for k = 2 to k = 15
+k.values <- 2:15
+
+# extract avg silhouette for 2-15 clusters
+avgsil_values <- map_dbl(k.values, avgsil)
+plot(k.values, avgsil_values,
+type = "b", pch = 19, frame = FALSE,
+xlab = "Number of clusters",
+ylab = "Average Silhouettes")
+```
+
+\newpage
+
+Similar to the elbow method, the “average silhoutte method” can be found in fviz_nbclust function:
+
+```{r}
+fviz_nbclust(c_data, kmeans, method = "silhouette")
+```
+
+\newpage
+
+Suppose km3 is our final model:
+
+```{r}
+fviz_cluster(km3, data = c_data)
+```
+
+During data processing we found that when we converted the first column to a row name and named it good, the first column automatically became a number when we performed the next operation. So we need to check the good and c_data against each other. For example, 1 in the figure is A-11 and 2 is A-6 etc.
+
+By looking at the above diagram we find that **28 and 32** are divided into one category, that is, M-1 and P-5 have high similarity. m-1 has purchased **Gun Tufted** and P-5 has not, so we can recommend **Gun Tufted** carpet to customer with code **P-5**.
+
+\newpage
+
+\sectionfont{\centering}
+
+# Part G
+
+**Q.** Write your own collaborative filtering function as a recommender system. Hint: Collaborative filtering technique is based on an aggregation of customer purchase history. For each customer, you can use various measures such as Pearson correlation, Euclidean distance, or cosine similarity to find the nearest neighbors. You can then use the nearest neighbors to recommend products. For example, suppose using cosine similarity, you find out that the closest customer to customer H-2 is customer T-5. Customer T-5 has purchased carpet type double black and gray color, which are not purchased by H-2. Hence these products can be recommended.
+
+**A.** To calculate the nearest neighbors, we used the cosine similarity as follows:
+
+```{r}
+# define a function to calculate cosine similarity between two rows
+cosine_sim <- function(x, y) {
+     (sum(x * y)) / (sqrt(sum(x^2)) * sqrt(sum(y^2)))
+ }
+```
+
+```{r}
+# create an empty matrix to store cosine similarities
+similarity_matrix <- matrix(NA, nrow = nrow(good), ncol = nrow(good))
+```
+
+```{r}
+# calculate cosine similarity between all pairs of rows
+for (i in 1:nrow(good)) {
+     for (j in 1:nrow(good)) {
+         similarity_matrix[i, j] <- 
+        cosine_sim(good[i,  c(4,5,6,7,8,9,10,11,12,13)],
+                   good[j, c(4,5,6,7,8,9,10,11,12,13)])
+     }
+ }
+```
+
+```{r}
+# find the row j with the largest similarity with row i
+max_similarities <- apply(similarity_matrix, 1, max)
+most_similar_row_indices <- apply(similarity_matrix, 1, which.max)
+```
+
+
+```{r}
+# Create an empty vector to store the largest value in each row except for 1
+max_values <- vector(mode = "numeric", length = nrow(similarity_matrix))
+```
+
+```{r}
+# Create an empty vector to store the column number corresponding to 
+#the maximum value of each row
+max_cols <- vector(mode = "numeric", length = nrow(similarity_matrix))
+```
+
+```{r}
+for (i in 1:nrow(similarity_matrix)) {
+  
+  max_values[i] <- max(similarity_matrix[i, similarity_matrix[i,] != 1])
+  
+  max_cols[i] <- which(similarity_matrix[i,] == max_values[i])
+}
+
+```
+
+\newpage
+
+```{r}
+# Output the largest value in each row except 1 and the 
+#corresponding row and column
+
+result <- data.frame(Maximum_Value = max_values, 
+              Row_Number = 1:nrow(similarity_matrix), Column_Number = max_cols)
+print(result)
+```
+
+**Based on this result. row 2 and row 16 are similar. There is a high degree of similarity between customers with code N-6 and G-1. G-1 purchased Handwoven carpets, so they can recommend Handwoven to N-6 as well.**
+
+\newpage
+
+For this question, we load the Raw Data-Order and Sample tab again:
+
+```{r}
+library(arules)
+raw <- read_excel("C:/Champo Carpets.xlsx",sheet = "Raw Data-Order and Sample",
+                  col_names = TRUE)
+
+as(raw, "transactions")
+```
+
+As we noticed above, columns that are not logical or factor are 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, and 16, so we remove those columns from our data set.
+
+```{r}
+raw2<-raw[,-c(1,2,4,5,6,7,8,9,10,12,13,16)]
+```
+
+\newpage
+
+To see the most frequent items we can use the eclat() function that takes in a transactions object and gives the most frequent items in the data based the support you provide as min_support in “supp” argument. The “maxlen” defines the maximum number of items in each itemset of frequent items:
+
+```{r}
+frequency <- eclat(raw2, parameter = list(supp=0.07, maxlen=15))
+inspect(frequency)
+```
+
+\newpage
+
+Next up, we use apriori() function to generate the rules. We can adjust the maxlen, supp, and conf arguments in the apriori function to control the number of rules generated. The “control” argument can be adjusted to control the algorithmic performance (for example, verbose which is a logical argument indicating whether to report progress of algorithm):
+
+```{r}
+library(arulesViz)
+# Produce recommendation rules
+# Min Support as 0.001, confidence as 0.5
+rules <- apriori (raw2, parameter = list(supp=0.001, conf= 0.5))
+```
+
+\newpage
+
+The function inspect() prints the internal representation of an R object. Here, it displaying the first 10 strong association rules based on confidence:
+
+```{r}
+# Sort rules by Confidence
+rules_conf <- sort (rules, by="confidence", decreasing=TRUE)
+# show the support, lift and confidence for all rules
+inspect(rules_conf[1:10])
+```
+
+\newpage
+
+We can now sort this based on the **lift** values as follows:
+
+```{r}
+rules_lift <- sort (rules, by="lift", decreasing=TRUE)
+inspect(rules_lift[1:10])
+
+write(rules_lift, file = "clusterRules", sep = ",")
+plot(rules_lift, method = "grouped")
+
+plot(rules_lift, method = "graph", control = list(type = 'item'), 
+     interactive = F)
+```
+
+\newpage
+
+To visualize this, we utilize the arulesViz package and after that the iGraph package:
+
+```{r}
+library(arulesViz)
+library(igraph)
+saveAsGraph(rules_lift, file = "rules.graphml")
+g<-read_graph("rules.graphml",format ="graphml")
+
+require(igraph)
+plot(g,width=10,arrow.size=0.5)
+```
+
+\newpage
+
+We can also control the number of rules in the output:
+
+```{r}
+rules3 <- apriori(raw2, parameter = list(supp = 0.001, conf = 0.5, maxlen=3))
+inspect(head(rules3))
+```
+
+\newpage
+
+We can use “appearance” argument in apriori() function to control the itemsets in antecedent and consequent parts of the decision rules:
+
+```{r}
+# Find rules related to given item(s)
+# Get rules that lead to buying 'ShapeName=REC'
+rules <- apriori (data=raw2, parameter=list(supp=0.001, conf=0.08),
+appearance = list(default="lhs",rhs="ShapeName=REC"), control = list(verbose=F))
+
+# 'high-confidence' rules.
+rules_conf <- sort (rules, by="confidence", decreasing=TRUE)
+inspect(head(rules_conf))
+```
+
+\newpage
+
+## Summary
+
+The rules with confidence of 1 imply that, whenever the LHS item was purchased, the RHS item was also purchased 100% of the time. This means that according to our data, whenever **Plum** colored carpet was bought, it was bought in **Rec** shape. Same with the other items listed above.
+
+Similarly, a rule with a lift of **17.27** means that items in LHS and RHS are 18 times more likely to be purchased together compared to the purchases when they are assumed to be unrelated. In our case, **RED/BROWN** carpet is **17.27** times more likely to be purchased by customer with customer code **C-1** when they are assumed to be unrelated.
+
+\newpage
+
+\sectionfont{\centering}
+
+# Part H
+
+**Q.** What will be your final recommendation to Champo Carpets?
+
+**A.** Through the models we've discussed above, ML models or clustering models, we can come up with a strategy for Champo Carpets. Some highlights are as follows:
+
+1. Our Decision Tree model suggests that the important attributes contributing to an order conversion are: **AreaFt**, **CustomerCode**, and **ITEM_NAME**.
+
+2. Our Random Forest model suggests that the important attributes are: **QtyRequired**, **CustomerCode**, **ITEM_NAME**, and **AreaFt** according to MeanDecreaseAccuracy and MeanDecreaseGini.
+
+3. Our Logistic Regression model suggests that the important attributes are: **ITEM_NAME**, especially **Gun Tufted**, **Knotted**, **Table Tufted**, and **Power Loom Jacquard**, followed by **Shape Name (Round)**, and **AreaFt**
+
+4. According to all models combined, we can recommend that **QtyRequired**, **AreaFt**, **CustomerCode**, and **ITEM_NAME** are playing the most important role in conversion of orders.
+
+5. Using K-Means clustering model, key knowledge about the segmentation of their customers can be obtained by Champo Carpets. This will help them form better strategies targeting different segments.
+
+6. **Reducing the weaving cost** can quickly reduce the manufacturing cost of carpet. The clustering idea for Champo carpet can focus on the clustering of weaving methods
+
+7. Champo Carpet can create tailored **marketing efforts** with a higher chance of success by comprehending the behavior of various client segments.
+
+8. An effective recommendation system needs to be developed using high-quality user feedback data, as a recommendation model is only as good as the data it is trained on.
+
+9. As per the Cosine Similarity calculation we did above: 
+
+ * The **second row** has a high correlation with row **16**. 
+ * The **third row** has high correlation with row **29**. 
+ * The **fourth row** has a high correlation with row **31**. 
+ * The **fifth row** has a high correlation with row **23**. 
+ * The **Sixth row** has high correlation with row **30**. 
+ * The **Eigth row** has high correlation with the row **41**.
+
+* The similar relationship pairs that can be seen are: 
+  * **N-6 & G-1** 
+  * **A-9 & M-2**
+  * **B-2 & P-4**
+  * **B-3 & K-3** 
+  * **B-4 & N-1**
+  * **C-2 & T-5**
+
+We can advise that customer with code **G-1** purchased hand-woven, so they can recommend hand woven to customer with code **N-6** as well. Customer with code **A-9** bought **Double Back** and **Knotted**, so they can recommend Double Back and Knotted to customer with code **M-2** as well.
+
+\newpage
+
+\sectionfont{\centering}
+
+# References
+
+1. [Association Rules](https://rpubs.com/Buczman/AssociationRules)
+2. [Association Rules SaveAsGraph Documentation](https://www.rdocumentation.org/packages/arulesViz/versions/1.3-2/topics/saveAsGraph)
+3. [Association Rules iGraph](https://adallak.github.io/Resources/Lab7)
+4. [Agglomerative Methods in Machine Learning](https://www.geeksforgeeks.org/agglomerative-methods-in-machine-learning/#)
+5. Decision Tree / Naive Bayes / Random Forest / Logistic Regression / Neural Network / Cluster Lecture Notes
